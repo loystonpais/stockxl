@@ -1,3 +1,5 @@
 fyers-apiv3
 gspread
 setuptools
+requests
+beautifulsoup4
