@@ -26,8 +26,6 @@ def get_symbols(sheet):
         symbols.append(f"NSE:{sym}".strip())
 
 
-TABLE = ["symbol", "vol_traded_today", "exch_feed_time"]
-
 if __name__ == "__main__":
     #### Google spreadsheet setup
     gsc_json = json.load(open("secrets/google-service-account.json"))
@@ -89,7 +87,7 @@ if __name__ == "__main__":
             f.write(auth_code)
 
     ## stage 2
-    # set the received access token
+    # set the received auth code
     fyer_init_session.set_token(auth_code)
 
     # stage 3
@@ -107,12 +105,8 @@ if __name__ == "__main__":
     # app id
     app_id = "I2UO8QM1WX-100"
 
-    ##### Get symbols
-    symbol = first_sheet.find(re.compile(".*Symbol.*", re.IGNORECASE))
-    if symbol is None:
-        print("Symbols cell not found")
-        exit(1)
-    symbols = first_sheet.col_values(symbol.col)
+    ##### Get symbols from col Q
+    symbols = first_sheet.col_values(col2int("Q"))[1:]
     symbols = list(filter(lambda sym: sym, symbols))
     symbols = [f"NSE:{sym}-EQ" for sym in symbols]
     print(symbols)
@@ -120,7 +114,7 @@ if __name__ == "__main__":
     class Events:
         @staticmethod
         def on_message(res):
-            print("Response:", res)
+            # print("Response:", res)
 
             if "symbol" not in res:
                 return
@@ -128,28 +122,37 @@ if __name__ == "__main__":
             symbol: str = res["symbol"]
             suffix = symbol.removeprefix("NSE:").removesuffix("-EQ")
             cells = first_sheet.findall(suffix)
-            current_volume_cell = first_sheet.find(
-                re.compile(".*Current volume.*", re.IGNORECASE)
-            )
 
-            if current_volume_cell is None:
-                print("No cell called Current volume found")
-                return
+            vol_traded_today = res["vol_traded_today"]
+            ltp = res["ltp"]
+            chp = res["chp"]
 
-            volume_cell_col = current_volume_cell.col
+            update_cells = []
 
-            update_cells = [
-                gspread.Cell(cell.row, volume_cell_col, value=res["vol_traded_today"])
+            # Price
+            update_cells += [
+                gspread.Cell(cell.row, col2int("R"), value=ltp) for cell in cells
+            ]
+
+            # Current volume
+            update_cells += [
+                gspread.Cell(cell.row, col2int("M"), value=vol_traded_today)
                 for cell in cells
             ]
-            print("Symbol found! ", update_cells)
-            # return
+
+            # Stock %
+            update_cells += [
+                gspread.Cell(cell.row, col2int("C"), value=chp) for cell in cells
+            ]
             first_sheet.update_cells(update_cells)
+            print(
+                f"Fyers: Updated Price = {ltp};  Current Volume = {vol_traded_today}; Stock % = {chp}; for {symbol}"
+            )
             sleep(1)
 
         @staticmethod
         def on_error(message):
-            print("Error:", message)
+            print("Error: (can be ignored)", message)
 
         @staticmethod
         def on_close(message):
@@ -180,8 +183,6 @@ if __name__ == "__main__":
 
     def fyers_process():
         fyers.connect()
-        # while True:
-        #    ...
 
     def moneycontrol_process():
         def is_valid_float(x):
@@ -210,17 +211,17 @@ if __name__ == "__main__":
                 bs = BeautifulSoup(r.text, "html.parser")
                 data = {}
 
-                #### price
-                tag = bs.find(id="nsecp")
-                if tag:
-                    p = str(tag.string).strip().replace(",", "")
+                # #### price
+                # tag = bs.find(id="nsecp")
+                # if tag:
+                #     p = str(tag.string).strip().replace(",", "")
 
-                    if is_valid_float(p):
-                        data["price"] = p
-                    else:
-                        print(f"Warning: price not updated for {url} {p}")
-                else:
-                    print(f"Warning: price not updated for {url}")
+                #     if is_valid_float(p):
+                #         data["price"] = p
+                #     else:
+                #         print(f"Warning: price not updated for {url} {p}")
+                # else:
+                #     print(f"Warning: price not updated for {url}")
 
                 #### beta
                 beta_tag = bs.find(class_="nsebeta")
@@ -244,42 +245,51 @@ if __name__ == "__main__":
                 else:
                     print(f"Warning: 20d average not updated for url {url}")
 
+                print(
+                    f"Moneycontrol: Updating {'; '.join({f'{k} = {v}' for k, v in data.items()})} for url {url}"
+                )
                 return (row, data)
             except Exception:
                 return None
 
         while True:
-            batch_size = 8
-            for i in range(0, len(row_url), batch_size):
-                subset = row_url[i : i + batch_size]
-                update_cells = []
-                with ThreadPoolExecutor(max_workers=batch_size) as ex:
-                    futures = [ex.submit(fetch_data, r, u) for r, u in subset]
-                    for f in as_completed(futures):
-                        result = f.result()
-                        if result and result[1]:
-                            row, data = result
-                            if "price" in data:
-                                update_cells.append(
-                                    gspread.Cell(row, col2int("R"), value=data["price"])
-                                )
-                            if "beta" in data:
-                                update_cells.append(
-                                    gspread.Cell(row, col2int("O"), value=data["beta"])
-                                )
-
-                            if "20d_avg" in data:
-                                update_cells.append(
-                                    gspread.Cell(
-                                        row, col2int("N"), value=data["20d_avg"]
+            try:
+                batch_size = 8
+                for i in range(0, len(row_url), batch_size):
+                    subset = row_url[i : i + batch_size]
+                    update_cells = []
+                    with ThreadPoolExecutor(max_workers=batch_size) as ex:
+                        futures = [ex.submit(fetch_data, r, u) for r, u in subset]
+                        for f in as_completed(futures):
+                            result = f.result()
+                            if result and result[1]:
+                                row, data = result
+                                # if "price" in data:
+                                #     update_cells.append(
+                                #         gspread.Cell(row, col2int("R"), value=data["price"])
+                                #     )
+                                if "beta" in data:
+                                    update_cells.append(
+                                        gspread.Cell(
+                                            row, col2int("O"), value=data["beta"]
+                                        )
                                     )
-                                )
-                            print(f"{row}: {data}")
 
-                if update_cells:
-                    first_sheet.update_cells(update_cells)
-                    print(f"Updated {len(update_cells)} rows.")
-            sleep(1)
+                                if "20d_avg" in data:
+                                    update_cells.append(
+                                        gspread.Cell(
+                                            row, col2int("N"), value=data["20d_avg"]
+                                        )
+                                    )
+                                # print(f"{row}: {data}")
+
+                    if update_cells:
+                        first_sheet.update_cells(update_cells)
+
+                sleep(1)
+            except Exception as e:
+                print(f"Moneycontrol process error: {e}")
+                pass
 
     threads = []
     for process in [fyers_process, moneycontrol_process]:
