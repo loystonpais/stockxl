@@ -7,7 +7,6 @@
 }: {
   packages = with pkgs; [
     anydesk
-    libreoffice
   ];
 
   languages.python = {

@@ -13,6 +13,33 @@ import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
+import random
+
+
+firefox_headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) "
+    "Gecko/20100101 Firefox/124.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Referer": "https://www.bing.com/",
+    "DNT": "1",
+}
+
+chrome_win_headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Referer": "https://www.google.com/",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-User": "?1",
+    "Sec-Fetch-Dest": "document",
+}
 
 
 def col2int(s):
@@ -95,10 +122,10 @@ if __name__ == "__main__":
     if "access_token" not in access_token_json:
         print("Error: Failed to get the access token")
         pprint(access_token_json)
-        exit(1)
+        # exit(1)
 
-    access_token = access_token_json["access_token"]
-    print(access_token[:20])
+    # access_token = access_token_json["access_token"]
+    # print(access_token[:20])
 
     # Websocket setup
 
@@ -148,7 +175,7 @@ if __name__ == "__main__":
             print(
                 f"Fyers: Updated Price = {ltp};  Current Volume = {vol_traded_today}; Stock % = {chp}; for {symbol}"
             )
-            sleep(1)
+            sleep(0.5)
 
         @staticmethod
         def on_error(message):
@@ -169,17 +196,17 @@ if __name__ == "__main__":
             # Keep the socket running to receive real-time data
             fyers.keep_running()
 
-    fyers = fyers_data_ws.FyersDataSocket(
-        access_token=f"{app_id}:{access_token}",
-        log_path="",
-        litemode=False,
-        write_to_file=False,  # Save response in a log file instead of printing it.
-        reconnect=True,
-        on_connect=Events.on_connect,
-        on_close=Events.on_close,
-        on_error=Events.on_error,
-        on_message=Events.on_message,
-    )
+    # fyers = fyers_data_ws.FyersDataSocket(
+    #     access_token=f"{app_id}:{access_token}",
+    #     log_path="",
+    #     litemode=False,
+    #     write_to_file=False,  # Save response in a log file instead of printing it.
+    #     reconnect=True,
+    #     on_connect=Events.on_connect,
+    #     on_close=Events.on_close,
+    #     on_error=Events.on_error,
+    #     on_message=Events.on_message,
+    # )
 
     def fyers_process():
         fyers.connect()
@@ -192,7 +219,60 @@ if __name__ == "__main__":
             except ValueError:
                 return False
 
+        def fetch_scids(urls: list[str]) -> dict[str, str]:
+            cache_file = Path("moneycontrol-scid.json")
+            if cache_file.exists():
+                cache = json.load(open(cache_file))
+            else:
+                cache = {}
+
+            try:
+                for url in urls:
+                    if url in cache:
+                        continue
+
+                    r = requests.get(
+                        url,
+                        timeout=5,
+                        headers=random.choice([firefox_headers, chrome_win_headers]),
+                    )
+                    if r.status_code != 200:
+                        raise Exception()
+                    bs = BeautifulSoup(r.text, "html.parser")
+                    tag = bs.find(id="sc_id")
+                    if tag is None:
+                        raise Exception("Cannot find required tag")
+                    scid = tag["value"]
+                    cache[url] = scid
+                    print(f"Fetched SCID for {url}: {scid}")
+                    sleep(10)
+            except Exception as e:
+                print(f"Failed to get SCID for url {e}: {url}")
+                exit(1)
+            finally:
+                json.dump(cache, open(cache_file, "w"), indent=4)
+
+            return cache
+
         urls = [str(url).strip() for url in first_sheet.col_values(col2int("J"))]
+
+        url_scids = fetch_scids(
+            list(
+                filter(
+                    lambda url: url.startswith(
+                        "https://www.moneycontrol.com/india/stockpricequote/"
+                    ),
+                    urls,
+                )
+            )
+        )
+
+        for url, scid in url_scids.items():
+            if url.split("/")[-1] != scid:
+                print(
+                    f"Soft Warning: Moneycontrol url {url} has a different scid {scid}"
+                )
+
         cells = enumerate(urls, start=1)
         row_url = list(
             filter(
@@ -252,6 +332,37 @@ if __name__ == "__main__":
             except Exception:
                 return None
 
+        def fetch_data_v2(row, url) -> tuple[int, dict] | None:
+            term = url_scids[url]
+            url = f"https://priceapi.moneycontrol.com/pricefeed/nse/equitycash/{term}"
+            try:
+                r = requests.get(url, timeout=1, headers=firefox_headers)
+                if r.status_code != 200:
+                    return None
+                r_json = r.json()
+                data = {}
+
+                ###! currently no way to get beta
+
+                #### 20d avg
+                data["20d_avg"] = r_json["data"]["DVolAvg20"]
+
+                # Stock %
+                data["price_change_percent"] = r_json["data"]["pricepercentchange"]
+
+                # Current Price
+                data["current_price"] = r_json["data"]["pricecurrent"]
+
+                # Current Volume
+                data["current_volume"] = r_json["data"]["VOL"]
+
+                print(
+                    f"Moneycontrol: Updating {'; '.join({f'{k} = {v}' for k, v in data.items()})} for url {url}"
+                )
+                return (row, data)
+            except Exception:
+                return None
+
         while True:
             try:
                 batch_size = 8
@@ -259,15 +370,11 @@ if __name__ == "__main__":
                     subset = row_url[i : i + batch_size]
                     update_cells = []
                     with ThreadPoolExecutor(max_workers=batch_size) as ex:
-                        futures = [ex.submit(fetch_data, r, u) for r, u in subset]
+                        futures = [ex.submit(fetch_data_v2, r, u) for r, u in subset]
                         for f in as_completed(futures):
                             result = f.result()
                             if result and result[1]:
                                 row, data = result
-                                # if "price" in data:
-                                #     update_cells.append(
-                                #         gspread.Cell(row, col2int("R"), value=data["price"])
-                                #     )
                                 if "beta" in data:
                                     update_cells.append(
                                         gspread.Cell(
@@ -281,6 +388,34 @@ if __name__ == "__main__":
                                             row, col2int("N"), value=data["20d_avg"]
                                         )
                                     )
+
+                                if "price_change_percent" in data:
+                                    update_cells.append(
+                                        gspread.Cell(
+                                            row,
+                                            col2int("C"),
+                                            value=data["price_change_percent"],
+                                        )
+                                    )
+
+                                if "current_price" in data:
+                                    update_cells.append(
+                                        gspread.Cell(
+                                            row,
+                                            col2int("R"),
+                                            value=data["current_price"],
+                                        )
+                                    )
+
+                                if "current_volume" in data:
+                                    update_cells.append(
+                                        gspread.Cell(
+                                            row,
+                                            col2int("M"),
+                                            value=data["current_price"],
+                                        )
+                                    )
+
                                 # print(f"{row}: {data}")
 
                     if update_cells:
@@ -292,7 +427,10 @@ if __name__ == "__main__":
                 pass
 
     threads = []
-    for process in [fyers_process, moneycontrol_process]:
+    for process in [
+        # fyers_process,
+        moneycontrol_process
+    ]:
         t = threading.Thread(target=process)
         threads.append(t)
 
