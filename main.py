@@ -412,7 +412,7 @@ if __name__ == "__main__":
                                         gspread.Cell(
                                             row,
                                             col2int("M"),
-                                            value=data["current_price"],
+                                            value=data["current_volume"],
                                         )
                                     )
 
