@@ -365,7 +365,7 @@ if __name__ == "__main__":
 
         while True:
             try:
-                batch_size = 8
+                batch_size = 15
                 for i in range(0, len(row_url), batch_size):
                     subset = row_url[i : i + batch_size]
                     update_cells = []
@@ -385,7 +385,9 @@ if __name__ == "__main__":
                                 if "20d_avg" in data:
                                     update_cells.append(
                                         gspread.Cell(
-                                            row, col2int("N"), value=data["20d_avg"]
+                                            row,
+                                            col2int("N"),
+                                            value=f"{int(float(data['20d_avg'])):,}",
                                         )
                                     )
 
@@ -394,7 +396,12 @@ if __name__ == "__main__":
                                         gspread.Cell(
                                             row,
                                             col2int("C"),
-                                            value=data["price_change_percent"],
+                                            value=str(
+                                                round(
+                                                    float(data["price_change_percent"]),
+                                                    2,
+                                                )
+                                            ),
                                         )
                                     )
 
@@ -403,7 +410,7 @@ if __name__ == "__main__":
                                         gspread.Cell(
                                             row,
                                             col2int("R"),
-                                            value=data["current_price"],
+                                            value=f"{float(data['current_price']):,}",
                                         )
                                     )
 
@@ -412,7 +419,7 @@ if __name__ == "__main__":
                                         gspread.Cell(
                                             row,
                                             col2int("M"),
-                                            value=data["current_volume"],
+                                            value=f"{int(float(data['current_volume'])):,}",
                                         )
                                     )
 
