@@ -48,14 +48,14 @@ def col2int(s):
 
 MC_WEIGHT_PERCENTAGE_COLUMN = "C"
 MC_CONTRIBUTION_COLUMN = "D"
-STOCK_PERCENTAGE_COLUMN = "E"
-MC_ANALYSIS_COLUMN = "L"
-CURRENT_VOLUME_COLUMN = "O"
-TWENTY_DAY_AVG_COLUMN = "P"
-BETA_COLUMN = "Q"
-SYMBOLS_COLUMN = "S"
-PRICE_COLUMN = "T"
-MC_INDEX_COLUMN = "V"
+STOCK_PERCENTAGE_COLUMN = "F"
+MC_ANALYSIS_COLUMN = "M"
+CURRENT_VOLUME_COLUMN = "P"
+TWENTY_DAY_AVG_COLUMN = "Q"
+BETA_COLUMN = "R"
+SYMBOLS_COLUMN = "T"
+PRICE_COLUMN = "U"
+MC_INDEX_COLUMN = "W"
 
 
 def get_symbols(sheet):
@@ -334,8 +334,8 @@ if __name__ == "__main__":
                     neg_data = json_data["data"]["negativeContributersArr"]
                     final_data = pos_data + neg_data
 
-                    update_cells = []
                     for unit in final_data:
+                        update_cells = []
                         for row, mc_url in lst:
                             slug = slug_map[unit["IR_SCID"]]
                             if slug in mc_url:
@@ -351,8 +351,9 @@ if __name__ == "__main__":
                                         value=str(unit["points"]),
                                     )
                                 )
-                    first_sheet.update_cells(update_cells)
-
+                        if update_cells:
+                            first_sheet.update_cells(update_cells)
+                            sleep(2)
                     sleep(5)
             except Exception as e:
                 print(f"Moneycontrol indexing process error: {e}")
