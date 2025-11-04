@@ -65,6 +65,42 @@ def get_symbols(sheet):
         symbols.append(f"NSE:{sym}".strip())
 
 
+def fetch_moneycontrol_scids(urls: list[str]) -> dict[str, str]:
+    cache_file = Path("moneycontrol-scid.json")
+    if cache_file.exists():
+        cache = json.load(open(cache_file))
+    else:
+        cache = {}
+
+    try:
+        for url in urls:
+            if url in cache:
+                continue
+
+            r = requests.get(
+                url,
+                timeout=5,
+                headers=random.choice([firefox_headers, chrome_win_headers]),
+            )
+            if r.status_code != 200:
+                raise Exception()
+            bs = BeautifulSoup(r.text, "html.parser")
+            tag = bs.find(id="sc_id")
+            if tag is None:
+                raise Exception("Cannot find required tag")
+            scid = tag["value"]
+            cache[url] = scid
+            print(f"Fetched SCID for {url}: {scid}")
+            sleep(10)
+    except Exception as e:
+        print(f"Failed to get SCID for url {e}: {url}")
+        exit(1)
+    finally:
+        json.dump(cache, open(cache_file, "w"), indent=4)
+
+    return cache
+
+
 if __name__ == "__main__":
     #### Google spreadsheet setup
     gsc_json = json.load(open("secrets/google-service-account.json"))
@@ -224,6 +260,21 @@ if __name__ == "__main__":
     #     on_message=Events.on_message,
     # )
 
+    MC_ANALYSIS_COLUMN_URLS = [
+        str(url).strip() for url in first_sheet.col_values(col2int(MC_ANALYSIS_COLUMN))
+    ]
+
+    MC_ANALYSIS_URL_SCIDS = fetch_moneycontrol_scids(
+        list(
+            filter(
+                lambda url: url.startswith(
+                    "https://www.moneycontrol.com/india/stockpricequote/"
+                ),
+                MC_ANALYSIS_COLUMN_URLS,
+            )
+        )
+    )
+
     def fyers_process():
         fyers.connect()
 
@@ -293,9 +344,7 @@ if __name__ == "__main__":
             update_cells = []
             for unit in final_data:
                 for row, mc_url in lst:
-                    slug = unit["slug"]
-                    slug_map[unit["IR_SCID"]] = unit["slug"]
-                    if slug in mc_url:
+                    if MC_ANALYSIS_URL_SCIDS[mc_url] == unit["IR_SCID"]:
                         print(
                             unit["slug"],
                             unit["stock_weight"],
@@ -334,13 +383,14 @@ if __name__ == "__main__":
                     neg_data = json_data["data"]["negativeContributersArr"]
                     final_data = pos_data + neg_data
 
+                    print(final_data)
+
                     for unit in final_data:
                         update_cells = []
                         for row, mc_url in lst:
-                            slug = slug_map[unit["IR_SCID"]]
-                            if slug in mc_url:
+                            if MC_ANALYSIS_URL_SCIDS[mc_url] == unit["IR_SCID"]:
                                 print(
-                                    slug,
+                                    mc_url,
                                     unit["points"],
                                     f"at row {row}",
                                 )
@@ -356,6 +406,7 @@ if __name__ == "__main__":
                             sleep(2)
                     sleep(5)
             except Exception as e:
+                print(e)
                 print(f"Moneycontrol indexing process error: {e}")
             print("Moneycontrol indexing: next one after 60s")
             sleep(60)
@@ -368,64 +419,13 @@ if __name__ == "__main__":
             except ValueError:
                 return False
 
-        def fetch_scids(urls: list[str]) -> dict[str, str]:
-            cache_file = Path("moneycontrol-scid.json")
-            if cache_file.exists():
-                cache = json.load(open(cache_file))
-            else:
-                cache = {}
-
-            try:
-                for url in urls:
-                    if url in cache:
-                        continue
-
-                    r = requests.get(
-                        url,
-                        timeout=5,
-                        headers=random.choice([firefox_headers, chrome_win_headers]),
-                    )
-                    if r.status_code != 200:
-                        raise Exception()
-                    bs = BeautifulSoup(r.text, "html.parser")
-                    tag = bs.find(id="sc_id")
-                    if tag is None:
-                        raise Exception("Cannot find required tag")
-                    scid = tag["value"]
-                    cache[url] = scid
-                    print(f"Fetched SCID for {url}: {scid}")
-                    sleep(10)
-            except Exception as e:
-                print(f"Failed to get SCID for url {e}: {url}")
-                exit(1)
-            finally:
-                json.dump(cache, open(cache_file, "w"), indent=4)
-
-            return cache
-
-        urls = [
-            str(url).strip()
-            for url in first_sheet.col_values(col2int(MC_ANALYSIS_COLUMN))
-        ]
-
-        url_scids = fetch_scids(
-            list(
-                filter(
-                    lambda url: url.startswith(
-                        "https://www.moneycontrol.com/india/stockpricequote/"
-                    ),
-                    urls,
-                )
-            )
-        )
-
-        for url, scid in url_scids.items():
+        for url, scid in MC_ANALYSIS_URL_SCIDS.items():
             if url.split("/")[-1] != scid:
                 print(
                     f"Soft Warning: Moneycontrol url {url} has a different scid {scid}"
                 )
 
-        cells = enumerate(urls, start=1)
+        cells = enumerate(MC_ANALYSIS_COLUMN_URLS, start=1)
         row_url = list(
             filter(
                 lambda cell: cell[1].startswith(
@@ -485,7 +485,7 @@ if __name__ == "__main__":
                 return None
 
         def fetch_data_v2(row, url) -> tuple[int, dict] | None:
-            term = url_scids[url]
+            term = MC_ANALYSIS_URL_SCIDS[url]
             url = f"https://priceapi.moneycontrol.com/pricefeed/nse/equitycash/{term}"
             try:
                 r = requests.get(url, timeout=1, headers=firefox_headers)
