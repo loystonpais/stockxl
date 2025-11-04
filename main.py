@@ -46,6 +46,18 @@ def col2int(s):
     return ascii_uppercase.find(s) + 1
 
 
+MC_WEIGHT_PERCENTAGE_COLUMN = "C"
+MC_CONTRIBUTION_COLUMN = "D"
+STOCK_PERCENTAGE_COLUMN = "E"
+MC_ANALYSIS_COLUMN = "L"
+CURRENT_VOLUME_COLUMN = "O"
+TWENTY_DAY_AVG_COLUMN = "P"
+BETA_COLUMN = "Q"
+SYMBOLS_COLUMN = "S"
+PRICE_COLUMN = "T"
+MC_INDEX_COLUMN = "V"
+
+
 def get_symbols(sheet):
     # read symbols from Q2 onwards
     symbols = []
@@ -133,7 +145,7 @@ if __name__ == "__main__":
     app_id = "I2UO8QM1WX-100"
 
     ##### Get symbols from col Q
-    symbols = first_sheet.col_values(col2int("Q"))[1:]
+    symbols = first_sheet.col_values(col2int(SYMBOLS_COLUMN))[1:]
     symbols = list(filter(lambda sym: sym, symbols))
     symbols = [f"NSE:{sym}-EQ" for sym in symbols]
     print(symbols)
@@ -158,18 +170,22 @@ if __name__ == "__main__":
 
             # Price
             update_cells += [
-                gspread.Cell(cell.row, col2int("R"), value=ltp) for cell in cells
+                gspread.Cell(cell.row, col2int(PRICE_COLUMN), value=ltp)
+                for cell in cells
             ]
 
             # Current volume
             update_cells += [
-                gspread.Cell(cell.row, col2int("M"), value=vol_traded_today)
+                gspread.Cell(
+                    cell.row, col2int(CURRENT_VOLUME_COLUMN), value=vol_traded_today
+                )
                 for cell in cells
             ]
 
             # Stock %
             update_cells += [
-                gspread.Cell(cell.row, col2int("C"), value=chp) for cell in cells
+                gspread.Cell(cell.row, col2int(STOCK_PERCENTAGE_COLUMN), value=chp)
+                for cell in cells
             ]
             first_sheet.update_cells(update_cells)
             print(
@@ -211,6 +227,138 @@ if __name__ == "__main__":
     def fyers_process():
         fyers.connect()
 
+    def moneycontrol_index_process():
+        indexes = []
+        for n, url in enumerate(
+            first_sheet.col_values(col2int(MC_INDEX_COLUMN)), start=1
+        ):
+            url = str(url).strip()
+
+            if url.startswith(
+                "https://www.moneycontrol.com/markets/index-contribution-"
+            ):
+                indexes.append([n, url])
+
+        mc_urls = enumerate(
+            first_sheet.col_values(col2int(MC_ANALYSIS_COLUMN)), start=1
+        )
+        mc_urls = list(
+            filter(
+                lambda cell: str(cell[1])
+                .strip()
+                .startswith("https://www.moneycontrol.com/india/stockpricequote/"),
+                mc_urls,
+            )
+        )
+
+        for idx1, idx2 in zip(indexes, indexes[1:]):
+            mi, mx = idx1[0], idx2[0]
+            idx1.append([cell for cell in mc_urls if cell[0] in range(mi, mx)])
+
+        m = indexes[-1][0]
+        indexes[-1].append([cell for cell in mc_urls if cell[0] >= m])
+
+        for idx in indexes:
+            n, url, lst = idx
+
+            print(f"Fetching Moneycontrol index: {url}")
+            req = requests.get(url)
+
+            bs = BeautifulSoup(req.text, "html.parser")
+            tag = bs.find("script", {"id": "__NEXT_DATA__", "type": "application/json"})
+
+            if tag is None:
+                raise Exception(f"No json found. {url}")
+
+            data = json.loads(tag.text)
+
+            fromDate = data["props"]["pageProps"]["data"]["defaultDate"][
+                "default_fromdate"
+            ]
+            toDate = data["props"]["pageProps"]["data"]["defaultDate"]["default_todate"]
+
+            ex = data["props"]["pageProps"]["data"]["ex"]
+            indexId = data["props"]["pageProps"]["data"]["index"]
+
+            idx.append(
+                f"https://api.moneycontrol.com/mcapi/v1/indices/getIndexContriCurrDate?indexId={indexId}&ex={ex}&fromDate={fromDate}&toDate={toDate}&view=details"
+            )
+
+            contrb_data = data["props"]["pageProps"]["data"]["contributersDataItem"]
+            pos_data = contrb_data["positiveContributersArr"]
+            neg_data = contrb_data["negativeContributersArr"]
+            final_data = pos_data + neg_data
+
+            slug_map = {}
+            update_cells = []
+            for unit in final_data:
+                for row, mc_url in lst:
+                    slug = unit["slug"]
+                    slug_map[unit["IR_SCID"]] = unit["slug"]
+                    if slug in mc_url:
+                        print(
+                            unit["slug"],
+                            unit["stock_weight"],
+                            unit["points"],
+                            f"at row {row}",
+                        )
+                        update_cells.append(
+                            gspread.Cell(
+                                row,
+                                col2int(MC_WEIGHT_PERCENTAGE_COLUMN),
+                                value=str(unit["stock_weight"]),
+                            )
+                        )
+                        update_cells.append(
+                            gspread.Cell(
+                                row,
+                                col2int(MC_CONTRIBUTION_COLUMN),
+                                value=str(unit["points"]),
+                            )
+                        )
+            first_sheet.update_cells(update_cells)
+            idx.append(slug_map)
+
+        # sleep(3)
+
+        while True:
+            try:
+                for idx in indexes:
+                    n, url, lst, final_url, slug_map = idx
+
+                    # do requests here
+                    req = requests.get(final_url, headers=firefox_headers)
+                    json_data = req.json()
+
+                    pos_data = json_data["data"]["positiveContributersArr"]
+                    neg_data = json_data["data"]["negativeContributersArr"]
+                    final_data = pos_data + neg_data
+
+                    update_cells = []
+                    for unit in final_data:
+                        for row, mc_url in lst:
+                            slug = slug_map[unit["IR_SCID"]]
+                            if slug in mc_url:
+                                print(
+                                    slug,
+                                    unit["points"],
+                                    f"at row {row}",
+                                )
+                                update_cells.append(
+                                    gspread.Cell(
+                                        row,
+                                        col2int(MC_CONTRIBUTION_COLUMN),
+                                        value=str(unit["points"]),
+                                    )
+                                )
+                    first_sheet.update_cells(update_cells)
+
+                    sleep(5)
+            except Exception as e:
+                print(f"Moneycontrol indexing process error: {e}")
+            print("Moneycontrol indexing: next one after 60s")
+            sleep(60)
+
     def moneycontrol_process():
         def is_valid_float(x):
             try:
@@ -218,71 +366,6 @@ if __name__ == "__main__":
                 return True
             except ValueError:
                 return False
-
-        def process_indexes():
-            indexes = []
-            for n, url in enumerate(first_sheet.col_values(col2int("T")), start=1):
-                url = str(url).strip()
-
-                if url.startswith(
-                    "https://www.moneycontrol.com/markets/index-contribution-"
-                ):
-                    indexes.append([n, url])
-
-            mc_urls = enumerate(first_sheet.col_values(col2int("J")), start=1)
-            mc_urls = list(
-                filter(
-                    lambda cell: str(cell[1])
-                    .strip()
-                    .startswith("https://www.moneycontrol.com/india/stockpricequote/"),
-                    mc_urls,
-                )
-            )
-
-            for idx1, idx2 in zip(indexes, indexes[1:]):
-                mi, mx = idx1[0], idx2[0]
-                idx1.append([cell for cell in mc_urls if cell[0] in range(mi, mx)])
-
-            m = indexes[-1][0]
-            indexes[-1].append([cell for cell in mc_urls if cell[0] >= m])
-
-            for idx in indexes:
-                n, url, lst = idx
-
-                print(f"Fetching Moneycontrol index: {url}")
-                req = requests.get(url)
-
-                bs = BeautifulSoup(req.text, "html.parser")
-                tag = bs.find(
-                    "script", {"id": "__NEXT_DATA__", "type": "application/json"}
-                )
-
-                if tag is None:
-                    raise Exception(f"No json found. {url}")
-
-                data = json.loads(tag.text)["props"]["pageProps"]["data"][
-                    "contributersDataItem"
-                ]
-                pos_data = data["positiveContributersArr"]
-                neg_data = data["negativeContributersArr"]
-
-                final_data = pos_data + neg_data
-
-                update_cells = []
-                for unit in final_data:
-                    for row, mc_url in lst:
-                        slug = unit["slug"]
-
-                        if slug in mc_url:
-                            print(unit["slug"], unit["stock_weight"], f"at row {row}")
-                            update_cells.append(
-                                gspread.Cell(
-                                    row, col2int("B"), value=unit["stock_weight"]
-                                )
-                            )
-                first_sheet.update_cells(update_cells)
-
-        process_indexes()
 
         def fetch_scids(urls: list[str]) -> dict[str, str]:
             cache_file = Path("moneycontrol-scid.json")
@@ -319,7 +402,10 @@ if __name__ == "__main__":
 
             return cache
 
-        urls = [str(url).strip() for url in first_sheet.col_values(col2int("J"))]
+        urls = [
+            str(url).strip()
+            for url in first_sheet.col_values(col2int(MC_ANALYSIS_COLUMN))
+        ]
 
         url_scids = fetch_scids(
             list(
@@ -443,7 +529,9 @@ if __name__ == "__main__":
                                 if "beta" in data:
                                     update_cells.append(
                                         gspread.Cell(
-                                            row, col2int("O"), value=data["beta"]
+                                            row,
+                                            col2int(BETA_COLUMN),
+                                            value=data["beta"],
                                         )
                                     )
 
@@ -451,7 +539,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int("N"),
+                                            col2int(TWENTY_DAY_AVG_COLUMN),
                                             value=f"{int(float(data['20d_avg'])):,}",
                                         )
                                     )
@@ -460,7 +548,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int("C"),
+                                            col2int(STOCK_PERCENTAGE_COLUMN),
                                             value=str(
                                                 round(
                                                     float(data["price_change_percent"]),
@@ -474,7 +562,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int("R"),
+                                            col2int(PRICE_COLUMN),
                                             value=f"{float(data['current_price']):,}",
                                         )
                                     )
@@ -483,7 +571,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int("M"),
+                                            col2int(CURRENT_VOLUME_COLUMN),
                                             value=f"{int(float(data['current_volume'])):,}",
                                         )
                                     )
@@ -501,7 +589,8 @@ if __name__ == "__main__":
     threads = []
     for process in [
         # fyers_process,
-        moneycontrol_process
+        moneycontrol_process,
+        moneycontrol_index_process,
     ]:
         t = threading.Thread(target=process)
         threads.append(t)
