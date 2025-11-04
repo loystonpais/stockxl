@@ -219,6 +219,71 @@ if __name__ == "__main__":
             except ValueError:
                 return False
 
+        def process_indexes():
+            indexes = []
+            for n, url in enumerate(first_sheet.col_values(col2int("T")), start=1):
+                url = str(url).strip()
+
+                if url.startswith(
+                    "https://www.moneycontrol.com/markets/index-contribution-"
+                ):
+                    indexes.append([n, url])
+
+            mc_urls = enumerate(first_sheet.col_values(col2int("J")), start=1)
+            mc_urls = list(
+                filter(
+                    lambda cell: str(cell[1])
+                    .strip()
+                    .startswith("https://www.moneycontrol.com/india/stockpricequote/"),
+                    mc_urls,
+                )
+            )
+
+            for idx1, idx2 in zip(indexes, indexes[1:]):
+                mi, mx = idx1[0], idx2[0]
+                idx1.append([cell for cell in mc_urls if cell[0] in range(mi, mx)])
+
+            m = indexes[-1][0]
+            indexes[-1].append([cell for cell in mc_urls if cell[0] >= m])
+
+            for idx in indexes:
+                n, url, lst = idx
+
+                print(f"Fetching Moneycontrol index: {url}")
+                req = requests.get(url)
+
+                bs = BeautifulSoup(req.text, "html.parser")
+                tag = bs.find(
+                    "script", {"id": "__NEXT_DATA__", "type": "application/json"}
+                )
+
+                if tag is None:
+                    raise Exception(f"No json found. {url}")
+
+                data = json.loads(tag.text)["props"]["pageProps"]["data"][
+                    "contributersDataItem"
+                ]
+                pos_data = data["positiveContributersArr"]
+                neg_data = data["negativeContributersArr"]
+
+                final_data = pos_data + neg_data
+
+                update_cells = []
+                for unit in final_data:
+                    for row, mc_url in lst:
+                        slug = unit["slug"]
+
+                        if slug in mc_url:
+                            print(unit["slug"], unit["stock_weight"], f"at row {row}")
+                            update_cells.append(
+                                gspread.Cell(
+                                    row, col2int("B"), value=unit["stock_weight"]
+                                )
+                            )
+                first_sheet.update_cells(update_cells)
+
+        process_indexes()
+
         def fetch_scids(urls: list[str]) -> dict[str, str]:
             cache_file = Path("moneycontrol-scid.json")
             if cache_file.exists():
