@@ -515,6 +515,36 @@ if __name__ == "__main__":
             except Exception:
                 return None
 
+        print("Updating beta: This happens once")
+        try:
+            batch_size = 15
+            for i in range(0, len(row_url), batch_size):
+                subset = row_url[i : i + batch_size]
+                update_cells = []
+                with ThreadPoolExecutor(max_workers=batch_size) as ex:
+                    futures = [ex.submit(fetch_data, r, u) for r, u in subset]
+                    for f in as_completed(futures):
+                        result = f.result()
+                        if result and result[1]:
+                            row, data = result
+                            if "beta" in data:
+                                update_cells.append(
+                                    gspread.Cell(
+                                        row,
+                                        col2int(BETA_COLUMN),
+                                        value=data["beta"],
+                                    )
+                                )
+                            # print(f"{row}: {data}")
+                if update_cells:
+                    first_sheet.update_cells(update_cells)
+            sleep(1)
+        except Exception as e:
+            print(f"Moneycontrol process error: {e}")
+            pass
+
+        print("Starting live update")
+        sleep(1)
         while True:
             try:
                 batch_size = 15
