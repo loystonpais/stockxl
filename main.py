@@ -42,27 +42,23 @@ chrome_win_headers = {
 }
 
 
-def col2int(s):
-    return ascii_uppercase.find(s) + 1
+COLUMN_MC_WEIGHT_PERCENTAGE = "mc_weighted_15per"
+COLUMN_STOCK_PERCENTAGE = "stock_60per"
+COLUMN_MC_CONTRIBUTION = "contribution"
 
 
-MC_WEIGHT_PERCENTAGE_COLUMN = "C"
-MC_CONTRIBUTION_COLUMN = "D"
-STOCK_PERCENTAGE_COLUMN = "F"
-MC_ANALYSIS_COLUMN = "M"
-CURRENT_VOLUME_COLUMN = "P"
-TWENTY_DAY_AVG_COLUMN = "Q"
-BETA_COLUMN = "R"
-SYMBOLS_COLUMN = "T"
-PRICE_COLUMN = "U"
-MC_INDEX_COLUMN = "W"
+COLUMN_CURRENT_VOLUME = "current_volume"
+COLUMN_TWENTY_DAY_AVG_VOL = "20d_avg_volume"
+COLUMN_BETA = "beta_5per"
 
 
-def get_symbols(sheet):
-    # read symbols from Q2 onwards
-    symbols = []
-    for i, sym in enumerate(sheet.col_values(17)[1:], start=2):
-        symbols.append(f"NSE:{sym}".strip())
+COLUMN_SYMBOL = "symbol"
+COLUMN_PRICE = "price"
+COLUMN_MC_ANALYSIS = "mc_analysis_url"
+COLUMN_MC_INDEX = "mc_index_url"
+COLUMN_MC_ANNOUNCE = "mc_announce"
+COLUMN_MC_BOARD_MEETINGS = "mc_board_meetings"
+COLUMN_MC_DIVIDENDS = "mc_dividends"
 
 
 def fetch_moneycontrol_scids(urls: list[str]) -> dict[str, str]:
@@ -79,8 +75,8 @@ def fetch_moneycontrol_scids(urls: list[str]) -> dict[str, str]:
 
             r = requests.get(
                 url,
-                timeout=5,
-                headers=random.choice([firefox_headers, chrome_win_headers]),
+                # timeout=10,
+                headers=random.choice([chrome_win_headers]),
             )
             if r.status_code != 200:
                 raise Exception()
@@ -123,6 +119,30 @@ if __name__ == "__main__":
         raise ValueError("sheet.toml has no reqired properties")
 
     first_sheet = sh.get_worksheet(0)
+
+    first_sheet_first_row = [v.lower().strip() for v in first_sheet.row_values(1)]
+
+    ### Checks for first row
+    for k, v in list(filter(lambda kv: kv[0].startswith("COLUMN_"), globals().items())):
+        if not v:
+            continue
+
+        if v not in first_sheet_first_row:
+            raise ValueError(
+                f"Column value for variable {k} = {v} not found in the first row"
+            )
+
+        print(
+            f"Verification: {v} = {ascii_uppercase[first_sheet_first_row.index(v)]} ?"
+        )
+    ###
+
+    print(first_sheet_first_row)
+
+    def id2int(id) -> int:
+        return first_sheet_first_row.index(id) + 1
+
+    # exit()
 
     #### Fyer setup
 
@@ -181,7 +201,7 @@ if __name__ == "__main__":
     app_id = "I2UO8QM1WX-100"
 
     ##### Get symbols from col Q
-    symbols = first_sheet.col_values(col2int(SYMBOLS_COLUMN))[1:]
+    symbols = first_sheet.col_values(id2int(COLUMN_SYMBOL))[1:]
     symbols = list(filter(lambda sym: sym, symbols))
     symbols = [f"NSE:{sym}-EQ" for sym in symbols]
     print(symbols)
@@ -206,21 +226,21 @@ if __name__ == "__main__":
 
             # Price
             update_cells += [
-                gspread.Cell(cell.row, col2int(PRICE_COLUMN), value=ltp)
+                gspread.Cell(cell.row, id2int(COLUMN_PRICE), value=ltp)
                 for cell in cells
             ]
 
             # Current volume
             update_cells += [
                 gspread.Cell(
-                    cell.row, col2int(CURRENT_VOLUME_COLUMN), value=vol_traded_today
+                    cell.row, id2int(COLUMN_CURRENT_VOLUME), value=vol_traded_today
                 )
                 for cell in cells
             ]
 
             # Stock %
             update_cells += [
-                gspread.Cell(cell.row, col2int(STOCK_PERCENTAGE_COLUMN), value=chp)
+                gspread.Cell(cell.row, id2int(COLUMN_STOCK_PERCENTAGE), value=chp)
                 for cell in cells
             ]
             first_sheet.update_cells(update_cells)
@@ -261,7 +281,7 @@ if __name__ == "__main__":
     # )
 
     MC_ANALYSIS_COLUMN_URLS = [
-        str(url).strip() for url in first_sheet.col_values(col2int(MC_ANALYSIS_COLUMN))
+        str(url).strip() for url in first_sheet.col_values(id2int(COLUMN_MC_ANALYSIS))
     ]
 
     MC_ANALYSIS_URL_SCIDS = fetch_moneycontrol_scids(
@@ -281,7 +301,7 @@ if __name__ == "__main__":
     def moneycontrol_index_process():
         indexes = []
         for n, url in enumerate(
-            first_sheet.col_values(col2int(MC_INDEX_COLUMN)), start=1
+            first_sheet.col_values(id2int(COLUMN_MC_INDEX)), start=1
         ):
             url = str(url).strip()
 
@@ -290,9 +310,7 @@ if __name__ == "__main__":
             ):
                 indexes.append([n, url])
 
-        mc_urls = enumerate(
-            first_sheet.col_values(col2int(MC_ANALYSIS_COLUMN)), start=1
-        )
+        mc_urls = enumerate(first_sheet.col_values(id2int(COLUMN_MC_ANALYSIS)), start=1)
         mc_urls = list(
             filter(
                 lambda cell: str(cell[1])
@@ -354,14 +372,14 @@ if __name__ == "__main__":
                         update_cells.append(
                             gspread.Cell(
                                 row,
-                                col2int(MC_WEIGHT_PERCENTAGE_COLUMN),
+                                id2int(COLUMN_MC_WEIGHT_PERCENTAGE),
                                 value=str(unit["stock_weight"]),
                             )
                         )
                         update_cells.append(
                             gspread.Cell(
                                 row,
-                                col2int(MC_CONTRIBUTION_COLUMN),
+                                id2int(COLUMN_MC_CONTRIBUTION),
                                 value=str(unit["points"]),
                             )
                         )
@@ -397,7 +415,7 @@ if __name__ == "__main__":
                                 update_cells.append(
                                     gspread.Cell(
                                         row,
-                                        col2int(MC_CONTRIBUTION_COLUMN),
+                                        id2int(COLUMN_MC_CONTRIBUTION),
                                         value=str(unit["points"]),
                                     )
                                 )
@@ -515,6 +533,86 @@ if __name__ == "__main__":
             except Exception:
                 return None
 
+        def fetch_latest_corporate_action_data(row, url) -> tuple[int, dict] | None:
+            term = MC_ANALYSIS_URL_SCIDS[url]
+            url = f"https://api.moneycontrol.com/mcapi/v1/stock/corporate-action?deviceType=W&scId={term}&section=all&page=1"
+
+            try:
+                r = requests.get(url, timeout=2, headers=firefox_headers)
+                if r.status_code != 200:
+                    return None
+                r_json = r.json()
+                data = {}
+
+                data["announcement"] = r_json["data"]["announcement"][0:3]
+                data["board_meeting"] = r_json["data"]["board_meeting"][0:3]
+                data["dividends"] = r_json["data"]["dividends"][0:3]
+
+                print(
+                    f"Moneycontrol Latest Corporate Action: Updating {'; '.join({f'{k} = {v}' for k, v in data.items()})} for url {url}"
+                )
+
+                return (row, data)
+
+            except Exception:
+                return None
+
+        print("Updating corporate action: This happens once")
+        try:
+            batch_size = 15
+            for i in range(0, len(row_url), batch_size):
+                subset = row_url[i : i + batch_size]
+                update_cells = []
+                with ThreadPoolExecutor(max_workers=batch_size) as ex:
+                    futures = [
+                        ex.submit(fetch_latest_corporate_action_data, r, u)
+                        for r, u in subset
+                    ]
+                    for f in as_completed(futures):
+                        result = f.result()
+                        if result and result[1]:
+                            row, data = result
+                            if "announcement" in data:
+                                update_cells.append(
+                                    gspread.Cell(
+                                        row,
+                                        id2int(COLUMN_MC_ANNOUNCE),
+                                        value="\n".join(
+                                            f"{ann['creationtime']} {ann['heading']}"
+                                            for ann in data["announcement"]
+                                        ),
+                                    )
+                                )
+                            if "board_meeting" in data:
+                                update_cells.append(
+                                    gspread.Cell(
+                                        row,
+                                        id2int(COLUMN_MC_BOARD_MEETINGS),
+                                        value="\n".join(
+                                            f"{ann['date']} {ann['remark']}"
+                                            for ann in data["board_meeting"]
+                                        ),
+                                    )
+                                )
+                            if "dividends" in data:
+                                update_cells.append(
+                                    gspread.Cell(
+                                        row,
+                                        id2int(COLUMN_MC_DIVIDENDS),
+                                        value="\n".join(
+                                            f"{ann['effective_date']} {ann['remarks']}"
+                                            for ann in data["dividends"]
+                                        ),
+                                    )
+                                )
+                            # print(f"{row}: {data}")
+                if update_cells:
+                    first_sheet.update_cells(update_cells)
+            sleep(1)
+        except Exception as e:
+            print(f"Moneycontrol process error: {e}")
+
+        # """
         print("Updating beta: This happens once")
         try:
             batch_size = 15
@@ -531,7 +629,7 @@ if __name__ == "__main__":
                                 update_cells.append(
                                     gspread.Cell(
                                         row,
-                                        col2int(BETA_COLUMN),
+                                        id2int(COLUMN_BETA),
                                         value=data["beta"],
                                     )
                                 )
@@ -542,6 +640,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Moneycontrol process error: {e}")
             pass
+        # """
 
         print("Starting live update")
         sleep(1)
@@ -561,7 +660,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int(BETA_COLUMN),
+                                            id2int(COLUMN_BETA),
                                             value=data["beta"],
                                         )
                                     )
@@ -570,7 +669,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int(TWENTY_DAY_AVG_COLUMN),
+                                            id2int(COLUMN_TWENTY_DAY_AVG_VOL),
                                             value=f"{int(float(data['20d_avg'])):,}",
                                         )
                                     )
@@ -579,7 +678,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int(STOCK_PERCENTAGE_COLUMN),
+                                            id2int(COLUMN_STOCK_PERCENTAGE),
                                             value=str(
                                                 round(
                                                     float(data["price_change_percent"]),
@@ -593,7 +692,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int(PRICE_COLUMN),
+                                            id2int(COLUMN_PRICE),
                                             value=f"{float(data['current_price']):,}",
                                         )
                                     )
@@ -602,7 +701,7 @@ if __name__ == "__main__":
                                     update_cells.append(
                                         gspread.Cell(
                                             row,
-                                            col2int(CURRENT_VOLUME_COLUMN),
+                                            id2int(COLUMN_CURRENT_VOLUME),
                                             value=f"{int(float(data['current_volume'])):,}",
                                         )
                                     )
@@ -621,7 +720,7 @@ if __name__ == "__main__":
     for process in [
         # fyers_process,
         moneycontrol_process,
-        moneycontrol_index_process,
+        # moneycontrol_index_process,
     ]:
         t = threading.Thread(target=process)
         threads.append(t)
