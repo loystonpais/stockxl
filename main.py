@@ -376,58 +376,58 @@ if __name__ == "__main__":
                                 value=str(unit["stock_weight"]),
                             )
                         )
-                        update_cells.append(
-                            gspread.Cell(
-                                row,
-                                id2int(COLUMN_MC_CONTRIBUTION),
-                                value=str(unit["points"]),
-                            )
-                        )
+                        # update_cells.append(
+                        #     gspread.Cell(
+                        #         row,
+                        #         id2int(COLUMN_MC_CONTRIBUTION),
+                        #         value=str(unit["points"]),
+                        #     )
+                        # )
             first_sheet.update_cells(update_cells)
             idx.append(slug_map)
 
         # sleep(3)
 
-        while True:
-            try:
-                for idx in indexes:
-                    n, url, lst, final_url, slug_map = idx
+        # while True:
+        #     try:
+        #         for idx in indexes:
+        #             n, url, lst, final_url, slug_map = idx
 
-                    # do requests here
-                    req = requests.get(final_url, headers=firefox_headers)
-                    json_data = req.json()
+        #             # do requests here
+        #             req = requests.get(final_url, headers=firefox_headers)
+        #             json_data = req.json()
 
-                    pos_data = json_data["data"]["positiveContributersArr"]
-                    neg_data = json_data["data"]["negativeContributersArr"]
-                    final_data = pos_data + neg_data
+        #             pos_data = json_data["data"]["positiveContributersArr"]
+        #             neg_data = json_data["data"]["negativeContributersArr"]
+        #             final_data = pos_data + neg_data
 
-                    print(final_data)
+        #             print(final_data)
 
-                    for unit in final_data:
-                        update_cells = []
-                        for row, mc_url in lst:
-                            if MC_ANALYSIS_URL_SCIDS[mc_url] == unit["IR_SCID"]:
-                                print(
-                                    mc_url,
-                                    unit["points"],
-                                    f"at row {row}",
-                                )
-                                update_cells.append(
-                                    gspread.Cell(
-                                        row,
-                                        id2int(COLUMN_MC_CONTRIBUTION),
-                                        value=str(unit["points"]),
-                                    )
-                                )
-                        if update_cells:
-                            first_sheet.update_cells(update_cells)
-                            sleep(2)
-                    sleep(5)
-            except Exception as e:
-                print(e)
-                print(f"Moneycontrol indexing process error: {e}")
-            print("Moneycontrol indexing: next one after 60s")
-            sleep(60)
+        #             for unit in final_data:
+        #                 update_cells = []
+        #                 for row, mc_url in lst:
+        #                     if MC_ANALYSIS_URL_SCIDS[mc_url] == unit["IR_SCID"]:
+        #                         print(
+        #                             mc_url,
+        #                             unit["points"],
+        #                             f"at row {row}",
+        #                         )
+        #                         update_cells.append(
+        #                             gspread.Cell(
+        #                                 row,
+        #                                 id2int(COLUMN_MC_CONTRIBUTION),
+        #                                 value=str(unit["points"]),
+        #                             )
+        #                         )
+        #                 if update_cells:
+        #                     first_sheet.update_cells(update_cells)
+        #                     sleep(2)
+        #             sleep(5)
+        #     except Exception as e:
+        #         print(e)
+        #         print(f"Moneycontrol indexing process error: {e}")
+        #     print("Moneycontrol indexing: next one after 60s")
+        #     sleep(60)
 
     def moneycontrol_process():
         def is_valid_float(x):
